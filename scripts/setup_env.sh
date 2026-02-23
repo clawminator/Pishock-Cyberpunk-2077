@@ -14,6 +14,16 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
+# Enforce project minimum version early for clearer setup failures.
+"$PYTHON_BIN" - <<'PY'
+import sys
+if sys.version_info < (3, 11):
+    raise SystemExit(
+        f"error: Python 3.11+ required, got {sys.version.split()[0]}. "
+        "Use PYTHON_BIN=python3.11 ./scripts/setup_env.sh"
+    )
+PY
+
 "$PYTHON_BIN" -m venv "$VENV_DIR"
 # shellcheck disable=SC1090
 source "$VENV_DIR/bin/activate"
