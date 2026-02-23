@@ -23,6 +23,7 @@ test = [
 
 [project.scripts]
 middleware-setup = "middleware.setup_wizard:run_wizard"
+middleware-file-ingest = "middleware.file_ingest:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

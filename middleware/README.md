@@ -209,6 +209,23 @@ Expected in dry-run mode: HTTP `202` and `{"accepted":true,"dry_run":true,...}`.
 - Positive events such as `player_healed` and `quest_completed` -> `vibrate`.
 
 ## Tests
+```bash
+python -m pytest -q
+```
+
+## File-based ingestion mode
+
+For CET file emitters, you can ingest outbox lines directly:
+
+```bash
+python -m middleware.file_ingest --outbox emitter/cet/mods/pishock_emitter/outbox/events.log
+```
+
+Line format expected by ingester:
+
+`<hex_hmac>\t<json_body>`
+
+The ingester uses the same `MIDDLEWARE_CONFIG`, signature verification, policy engine, and PiShock sender as the HTTP endpoint.
 - Additional events should follow the same pattern unless you intentionally override in config.
 
 ## Tests

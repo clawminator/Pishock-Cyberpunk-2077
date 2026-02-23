@@ -168,3 +168,43 @@ python -m pytest -q
 See middleware-specific details in:
 
 - `middleware/README.md`
+
+---
+
+## File-based CET emitter (new)
+
+This repo now includes a **file-based emitter scaffold** under:
+
+- `emitter/cet/mods/pishock_emitter/`
+
+It writes signed outbox lines in this format:
+
+`<hex_hmac>\t<json_body>`
+
+### CET install path
+
+Copy the `pishock_emitter` folder to your Cyberpunk CET mods directory:
+
+- `Cyberpunk 2077/bin/x64/plugins/cyber_engine_tweaks/mods/pishock_emitter/`
+
+Then copy:
+
+- `config.example.json` -> `config.json`
+
+and set `shared_secret` to match your middleware config secret.
+
+### Python ingester for file outbox
+
+Run the ingester (instead of HTTP `/event`) to consume the outbox file:
+
+```bash
+middleware-file-ingest --outbox emitter/cet/mods/pishock_emitter/outbox/events.log
+```
+
+or:
+
+```bash
+python -m middleware.file_ingest --outbox emitter/cet/mods/pishock_emitter/outbox/events.log
+```
+
+The ingester reuses the same safety policy and PiShock client modules as the HTTP path.
