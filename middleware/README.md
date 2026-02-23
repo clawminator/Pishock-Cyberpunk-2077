@@ -43,6 +43,8 @@ The bootstrap script targets official PyPI by default.
 ## Environment setup
 Requirements: Python **3.11+**.
 
+### Linux / macOS
+
 From repo root:
 
 ```bash
@@ -55,7 +57,19 @@ PYTHON_BIN=python3.11 ./scripts/setup_env.sh
 source .venv/bin/activate
 ```
 
-This creates `.venv`, installs runtime + test dependencies from official PyPI, and runs import checks.
+### Windows (PowerShell)
+
+```powershell
+# If py launcher resolves to 3.11+
+./scripts/setup_env.ps1
+
+# Or explicitly choose interpreter and venv directory
+./scripts/setup_env.ps1 -PythonBin py -PythonArgs "-3.11" -VenvDir .venv
+
+.\.venv\Scripts\Activate.ps1
+```
+
+These scripts create `.venv`, install runtime + test dependencies from official PyPI, and run import checks.
 
 ## First run (interactive config)
 ```bash
@@ -106,6 +120,11 @@ curl -i -X POST http://127.0.0.1:8787/event \
 ```
 
 Expected in dry-run mode: HTTP `202` and `{"accepted":true,"dry_run":true,...}`.
+
+## Default event behavior
+- `player_damaged` -> `shock` (only event mapped to shock by default; still requires `allow_shock: true` and `armed: true`).
+- Positive events such as `player_healed` and `quest_completed` -> `vibrate`.
+- Additional events should follow the same pattern unless you intentionally override in config.
 
 ## Tests
 ```bash

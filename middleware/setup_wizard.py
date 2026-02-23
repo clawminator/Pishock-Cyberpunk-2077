@@ -79,12 +79,16 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
     dry_run = _ask("Enable dry_run? (true/false)", "true").lower() == "true"
     allow_shock = _ask("Allow shock mode? (true/false)", "false").lower() == "true"
 
+    # Safety-oriented starter profile:
+    # - damage events are the only shock mapping
+    # - positive events default to vibrate
     config = {
         "service": {
             "bind_host": bind_host,
             "bind_port": bind_port,
             "shared_secret": shared_secret,
             "dry_run": dry_run,
+            # Needed so player_damaged -> shock mapping can operate when armed.
             "allow_shock": allow_shock,
             "max_intensity": 20,
             "max_duration_ms": 2000,
@@ -97,8 +101,9 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
             "name": "CyberpunkBridge",
         },
         "event_mappings": {
-            "player_damaged": {"mode": "vibrate", "intensity": 12, "duration_ms": 600, "cooldown_ms": 2000},
-            "player_death": {"mode": "beep", "intensity": 1, "duration_ms": 1000, "cooldown_ms": 5000},
+            "player_damaged": {"mode": "shock", "intensity": 8, "duration_ms": 400, "cooldown_ms": 2000},
+            "player_healed": {"mode": "vibrate", "intensity": 10, "duration_ms": 500, "cooldown_ms": 1500},
+            "quest_completed": {"mode": "vibrate", "intensity": 14, "duration_ms": 700, "cooldown_ms": 4000},
         },
     }
 
