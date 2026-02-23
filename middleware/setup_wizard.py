@@ -104,6 +104,8 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
             "player_damaged": {"mode": "shock", "intensity": 8, "duration_ms": 400, "cooldown_ms": 2000},
             "player_healed": {"mode": "vibrate", "intensity": 10, "duration_ms": 500, "cooldown_ms": 1500},
             "quest_completed": {"mode": "vibrate", "intensity": 14, "duration_ms": 700, "cooldown_ms": 4000},
+            "player_damaged": {"mode": "vibrate", "intensity": 12, "duration_ms": 600, "cooldown_ms": 2000},
+            "player_death": {"mode": "beep", "intensity": 1, "duration_ms": 1000, "cooldown_ms": 5000},
         },
     }
 
