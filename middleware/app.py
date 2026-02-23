@@ -23,6 +23,7 @@ from .policy import CooldownError, PolicyEngine, PolicyError
 from .security import verify_signature
 
 VERSION = "0.3.0"
+VERSION = "0.2.0"
 
 
 class JsonFormatter(logging.Formatter):
