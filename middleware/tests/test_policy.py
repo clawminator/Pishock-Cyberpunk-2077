@@ -62,3 +62,8 @@ def test_damage_percentage_scales_shock_intensity():
         }
     )
     assert act.intensity == 20  # 25 scaled, then capped by max_intensity=20
+    try:
+        pe.decide({"event_type": "shock_evt", "armed": True})
+        assert False, "expected PolicyError"
+    except PolicyError:
+        pass
