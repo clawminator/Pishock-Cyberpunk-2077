@@ -21,3 +21,8 @@ def test_example_config_positive_events_use_vibrate():
 
     assert "player_healed:\n    mode: vibrate" in text
     assert "quest_completed:\n    mode: vibrate" in text
+
+
+def test_example_config_contains_session_shock_cap():
+    text = _example_config_text()
+    assert "session_max_shock_level: 100" in text

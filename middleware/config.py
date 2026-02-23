@@ -33,6 +33,9 @@ class ServiceConfig:
     max_intensity: int
     max_duration_ms: int
     default_cooldown_ms: int
+    # Session cap used by damage->shock scaling. If set to 100, a 25% damage event
+    # can result in intensity 25 at most.
+    session_max_shock_level: int
     pishock: PiShockCredentials
     event_mappings: dict[str, dict[str, Any]]
 
@@ -63,6 +66,7 @@ def load_config(path: str | Path) -> ServiceConfig:
         max_intensity=int(service.get("max_intensity", 20)),
         max_duration_ms=int(service.get("max_duration_ms", 2000)),
         default_cooldown_ms=int(service.get("default_cooldown_ms", 1500)),
+        session_max_shock_level=int(service.get("session_max_shock_level", 100)),
         pishock=pishock,
         event_mappings=raw.get("event_mappings", {}),
     )

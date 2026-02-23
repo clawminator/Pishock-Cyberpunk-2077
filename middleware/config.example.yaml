@@ -7,6 +7,7 @@ service:
   max_intensity: 20
   max_duration_ms: 2000
   default_cooldown_ms: 1500
+  session_max_shock_level: 100
 
 pishock:
   username: your_username

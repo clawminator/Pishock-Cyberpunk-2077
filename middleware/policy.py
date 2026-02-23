@@ -39,6 +39,25 @@ class PolicyEngine:
         # Keyed by (event_type, target). Value is last accepted timestamp in ms.
         self._last_fired_ms: dict[tuple[str, str], int] = {}
 
+    def _damage_scaled_shock_intensity(self, event: dict[str, Any]) -> int:
+        """Compute shock intensity as damage% * session max shock level.
+
+        Expected event context fields:
+        - damage: damage value taken
+        - max_health: actor max health pool
+
+        Example: damage=100, max_health=400, session_max_shock_level=100 -> 25.
+        """
+
+        context = event.get("context") or {}
+        damage = float(context["damage"])
+        max_health = float(context["max_health"])
+        if max_health <= 0:
+            raise PolicyError("context.max_health must be > 0 for damage-based shock")
+
+        damage_ratio = max(0.0, min(1.0, damage / max_health))
+        return int(round(damage_ratio * self.config.session_max_shock_level))
+
     def decide(self, event: dict[str, Any]) -> Action:
         """Return an allowed action or raise a policy-related exception."""
 
@@ -55,6 +74,15 @@ class PolicyEngine:
         # Shock requires explicit global opt-in and per-event armed status.
         if mode == "shock" and (not self.config.allow_shock or not event.get("armed", False)):
             raise PolicyError("Shock mode is disabled or event is not armed")
+
+        # For damage events mapped to shock, scale intensity by damage percentage.
+        if mode == "shock" and event_type == "player_damaged":
+            try:
+                intensity = self._damage_scaled_shock_intensity(event)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise PolicyError(
+                    "player_damaged shock requires numeric context.damage and context.max_health"
+                ) from exc
 
         # Hard caps prevent unsafe or invalid values from config mistakes.
         intensity = min(max(1, intensity), self.config.max_intensity)

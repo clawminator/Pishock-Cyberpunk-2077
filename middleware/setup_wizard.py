@@ -39,6 +39,7 @@ def _emit_yaml(config: dict) -> str:
         f"  max_intensity: {service['max_intensity']}",
         f"  max_duration_ms: {service['max_duration_ms']}",
         f"  default_cooldown_ms: {service['default_cooldown_ms']}",
+        f"  session_max_shock_level: {service['session_max_shock_level']}",
         "",
         "pishock:",
         f"  username: {pishock['username']}",
@@ -78,10 +79,14 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
     bind_port = int(_ask("Bind port", "8787"))
     dry_run = _ask("Enable dry_run? (true/false)", "true").lower() == "true"
     allow_shock = _ask("Allow shock mode? (true/false)", "false").lower() == "true"
+    session_max_shock_level = int(
+        _ask("Session max shock level (1-100)", "100")
+    )
 
     # Safety-oriented starter profile:
     # - damage events are the only shock mapping
     # - positive events default to vibrate
+    # - damage->shock intensity is computed dynamically from damage percent
     config = {
         "service": {
             "bind_host": bind_host,
@@ -93,6 +98,7 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
             "max_intensity": 20,
             "max_duration_ms": 2000,
             "default_cooldown_ms": 1500,
+            "session_max_shock_level": min(max(1, session_max_shock_level), 100),
         },
         "pishock": {
             "username": username,

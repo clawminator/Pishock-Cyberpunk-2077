@@ -13,6 +13,7 @@ This repository currently provides the **local middleware service** (Python/Fast
   - cooldowns
   - max intensity / duration caps
   - shock gating (`allow_shock` + `armed`)
+  - damage-based shock scaling for `player_damaged`
 - PiShock legacy HTTP client (`apioperate`)
 - Interactive first-run config wizard (`python -m middleware.setup_wizard`)
 - Tests for signature validation, policy behavior, and event-flow simulation
@@ -24,6 +25,15 @@ This repository currently provides the **local middleware service** (Python/Fast
 4. Middleware either:
    - returns dry-run action info (`dry_run: true`), or
    - calls PiShock `apioperate` (`shock=Op 0`, `vibrate=Op 1`, `beep=Op 2`).
+
+## Damage percentage -> shock intensity
+For `player_damaged` (when mapped to `shock`), shock intensity is computed from damage percentage:
+
+`intensity = round((damage / max_health) * session_max_shock_level)`
+
+Then global hard caps are applied (`max_intensity`, min 1).
+
+Example: `damage=100`, `max_health=400`, `session_max_shock_level=100` -> `25` intensity in the PiShock API call.
 FastAPI middleware that receives signed local events from Cyberpunk 2077 mods and safely maps them to PiShock actions.
 
 ## How this works (Cyberpunk -> PiShock)
@@ -62,6 +72,7 @@ Use official/legit package sources only:
 - Python from python.org or your OS package manager
 - Python packages from official PyPI: `https://pypi.org/simple`
 
+The bootstrap scripts target official PyPI by default.
 The bootstrap script targets official PyPI by default.
 
 ## Environment setup
@@ -93,6 +104,12 @@ source .venv/bin/activate
 .\.venv\Scripts\Activate.ps1
 ```
 
+## First run (interactive config)
+```bash
+python -m middleware.setup_wizard
+```
+
+Wizard prompts include **Session max shock level (1-100)**. This value is used in the damage percentage formula above.
 These scripts create `.venv`, install runtime + test dependencies from official PyPI, and run import checks.
 
 ## First run (interactive config)
@@ -139,6 +156,16 @@ uvicorn middleware.app:app --host 127.0.0.1 --port 8787
   "event_type": "player_damaged",
   "ts_ms": 1700000000000,
   "session_id": "session-1",
+  "armed": true,
+  "context": {
+    "source": "cet",
+    "damage": 100,
+    "max_health": 400
+  }
+}
+```
+
+## Simulated request
   "armed": false,
   "context": {"source": "cet"}
 }
@@ -168,6 +195,10 @@ Then include the value as `X-Event-Signature` in `POST /event`.
 curl -i -X POST http://127.0.0.1:8787/event \
   -H "content-type: application/json" \
   -H "X-Event-Signature: <computed_hex_hmac>" \
+  --data '{"event_type":"player_damaged","ts_ms":1700000000000,"session_id":"session-1","armed":true,"context":{"source":"cet","damage":100,"max_health":400}}'
+```
+
+Expected in dry-run mode: HTTP `202` and an action containing `"mode":"shock"` and `"intensity":25` for that example.
   --data '{"event_type":"player_damaged","ts_ms":1700000000000,"session_id":"session-1","armed":false,"context":{"source":"cet"}}'
 ```
 
@@ -176,6 +207,8 @@ Expected in dry-run mode: HTTP `202` and `{"accepted":true,"dry_run":true,...}`.
 ## Default event behavior
 - `player_damaged` -> `shock` (only event mapped to shock by default; still requires `allow_shock: true` and `armed: true`).
 - Positive events such as `player_healed` and `quest_completed` -> `vibrate`.
+
+## Tests
 - Additional events should follow the same pattern unless you intentionally override in config.
 
 ## Tests

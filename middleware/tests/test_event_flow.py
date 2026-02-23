@@ -26,6 +26,15 @@ def _build_cfg() -> ServiceConfig:
         bind_port=8787,
         shared_secret="test-secret",
         dry_run=True,
+        allow_shock=True,
+        max_intensity=100,
+        max_duration_ms=2000,
+        default_cooldown_ms=1500,
+        session_max_shock_level=100,
+        pishock=PiShockCredentials(username="u", apikey="k", code="c"),
+        event_mappings={
+            "player_damaged": {
+                "mode": "shock",
         allow_shock=False,
         max_intensity=20,
         max_duration_ms=2000,
@@ -58,6 +67,8 @@ def test_post_event_simulation_returns_expected_action():
         "event_type": "player_damaged",
         "ts_ms": 1700000000000,
         "session_id": "session-1",
+        "armed": True,
+        "context": {"source": "cet", "damage": 100, "max_health": 400},
         "armed": False,
         "context": {"source": "cet"},
     }
@@ -73,5 +84,7 @@ def test_post_event_simulation_returns_expected_action():
     data = resp.json()
     assert data["accepted"] is True
     assert data["dry_run"] is True
+    assert data["action"]["mode"] == "shock"
+    assert data["action"]["intensity"] == 25
     assert data["action"]["mode"] == "vibrate"
     assert data["action"]["intensity"] == 12
