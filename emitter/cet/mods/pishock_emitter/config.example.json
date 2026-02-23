@@ -1,0 +1,5 @@
+{
+  "shared_secret": "change-me",
+  "outbox_path": "outbox/events.log",
+  "session_id_prefix": "cp77"
+}

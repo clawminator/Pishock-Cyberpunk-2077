@@ -1,0 +1,37 @@
+service:
+  bind_host: 127.0.0.1
+  bind_port: 8787
+  shared_secret: change-me
+  dry_run: true
+  allow_shock: false
+  max_intensity: 20
+  max_duration_ms: 2000
+  default_cooldown_ms: 1500
+  session_max_shock_level: 100
+
+pishock:
+  username: your_username
+  apikey: your_api_key
+  code: your_share_code
+  name: CyberpunkBridge
+
+event_mappings:
+  player_damaged:
+    mode: shock
+    intensity: 8
+    duration_ms: 400
+    cooldown_ms: 2000
+  player_healed:
+    mode: vibrate
+    intensity: 10
+    duration_ms: 500
+    cooldown_ms: 1500
+  combat_start:
+    mode: vibrate
+    intensity: 6
+    duration_ms: 300
+  quest_completed:
+    mode: vibrate
+    intensity: 14
+    duration_ms: 700
+    cooldown_ms: 4000
