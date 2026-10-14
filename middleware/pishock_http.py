@@ -10,9 +10,17 @@ from dataclasses import dataclass
 
 import requests
 
+from .config import PISHOCK_MAX_DURATION_MS, PISHOCK_MAX_INTENSITY
+
+API_URL = "https://do.pishock.com/api/apioperate"
 
 # Operation mapping for PiShock legacy API: shock=0, vibrate=1, beep=2.
 OPERATION_MAP = {"shock": 0, "vibrate": 1, "beep": 2}
+
+# apioperate answers HTTP 200 even for failures ("Not Authorized.", "This code
+# doesn't exist.", "Shocker is Paused ..."), so the body has to be inspected.
+# Per https://apidocs.pishock.com/ the only success text is "Operation Succeeded."
+_SUCCESS_MARKERS = ("Operation Succeeded",)
 
 
 @dataclass
@@ -48,6 +56,10 @@ def send_pishock_http(
     if mode not in OPERATION_MAP:
         raise ValueError(f"Unsupported PiShock mode: {mode}")
 
+    # Last line of defence: device limits regardless of what the caller passed.
+    intensity = max(1, min(PISHOCK_MAX_INTENSITY, int(intensity)))
+    duration_ms = max(0, min(PISHOCK_MAX_DURATION_MS, int(duration_ms)))
+
     payload = {
         "Username": username,
         "Apikey": apikey,
@@ -59,9 +71,9 @@ def send_pishock_http(
         "Duration": max(1, int(round(duration_ms / 1000))),
     }
 
-    resp = requests.post(
-        "https://do.pishock.com/api/apioperate",
-        json=payload,
-        timeout=timeout_s,
-    )
-    return PiShockResult(ok=resp.ok, status_code=resp.status_code, body=resp.text)
+    try:
+        resp = requests.post(API_URL, json=payload, timeout=timeout_s)
+    except requests.RequestException as exc:
+        return PiShockResult(ok=False, status_code=0, body=f"request failed: {exc}")
+    ok = resp.ok and any(marker in resp.text for marker in _SUCCESS_MARKERS)
+    return PiShockResult(ok=ok, status_code=resp.status_code, body=resp.text)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -20,10 +21,10 @@ from fastapi import FastAPI, HTTPException, Request
 from .config import ServiceConfig, load_config
 from .pishock_http import send_pishock_http
 from .policy import CooldownError, PolicyEngine, PolicyError
+from .safety import EmergencyStop, RateLimiter
 from .security import verify_signature
 
-VERSION = "0.3.0"
-VERSION = "0.2.0"
+VERSION = "1.0.0"
 
 
 class JsonFormatter(logging.Formatter):
@@ -70,13 +71,15 @@ def create_app(config: ServiceConfig) -> FastAPI:
 
     logger = configure_logging()
     policy_engine = PolicyEngine(config)
+    estop = EmergencyStop(config.safety.estop_file)
+    rate = RateLimiter(config.safety.max_actions_per_minute, config.safety.global_cooldown_ms)
     app = FastAPI(title="Cyberpunk PiShock Middleware", version=VERSION)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
         """Basic service health endpoint."""
 
-        return {"status": "ok", "version": VERSION}
+        return {"status": "ok", "version": VERSION, "estop": estop.is_engaged()}
 
     @app.post("/event", status_code=202)
     async def ingest_event(request: Request) -> dict[str, Any]:
@@ -87,6 +90,9 @@ def create_app(config: ServiceConfig) -> FastAPI:
         if not verify_signature(body, signature, config.shared_secret):
             raise HTTPException(status_code=401, detail="Invalid signature")
 
+        if estop.is_engaged():
+            raise HTTPException(status_code=423, detail="Emergency stop engaged")
+
         try:
             event = await request.json()
             action = policy_engine.decide(event)
@@ -94,6 +100,12 @@ def create_app(config: ServiceConfig) -> FastAPI:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except (PolicyError, KeyError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        now_s = time.time()
+        limited = rate.check(now_s)
+        if limited:
+            raise HTTPException(status_code=429, detail=limited)
+        rate.record(now_s)
 
         logger.info("event_accepted event_type=%s action=%s", event.get("event_type"), action)
 
