@@ -1,3 +1,12 @@
+-- Pure-Lua HMAC-SHA256 for the CET sandbox.
+--
+-- CET runs LuaJIT and exposes LuaJIT's `bit` library under the name `bit32`
+-- (sol2 maps lib::bit32 -> luaopen_bit when built against LuaJIT). That library
+-- returns *signed* 32-bit results and masks shift counts to 5 bits, so
+-- rshift(x, 32) == x. All arithmetic below is written to be correct under both
+-- LuaJIT `bit` and Lua 5.2 `bit32` semantics: values are re-normalised with
+-- `% 2^32` and the 64-bit message length is encoded with plain arithmetic.
+
 local CryptoHmac = {}
 
 local bit = bit32 or bit
@@ -9,21 +18,7 @@ local bnot = bit.bnot
 local rshift = bit.rshift
 local rrotate = bit.rrotate or bit.ror
 
-local function str2bytes(s)
-  local out = {}
-  for i = 1, #s do
-    out[i] = s:byte(i)
-  end
-  return out
-end
-
-local function bytes2str(bytes)
-  local chars = {}
-  for i = 1, #bytes do
-    chars[i] = string.char(bytes[i])
-  end
-  return table.concat(chars)
-end
+local MOD32 = 2 ^ 32
 
 local K = {
   0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -36,26 +31,39 @@ local K = {
   0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
 }
 
+local function u32(x)
+  return x % MOD32
+end
+
 local function add32(...)
   local sum = 0
   for i = 1, select("#", ...) do
-    sum = (sum + select(i, ...)) % 2^32
+    sum = (sum + select(i, ...)) % MOD32
   end
   return sum
 end
 
-local function sha256(msg)
-  local bytes = str2bytes(msg)
-  local bit_len = #bytes * 8
+-- Append the 4 big-endian bytes of an unsigned 32-bit value.
+local function push_be32(bytes, value)
+  bytes[#bytes + 1] = math.floor(value / 0x1000000) % 256
+  bytes[#bytes + 1] = math.floor(value / 0x10000) % 256
+  bytes[#bytes + 1] = math.floor(value / 0x100) % 256
+  bytes[#bytes + 1] = value % 256
+end
+
+local function sha256_words(msg)
+  local bytes = {}
+  for i = 1, #msg do
+    bytes[i] = msg:byte(i)
+  end
+  local bit_len = #msg * 8
 
   bytes[#bytes + 1] = 0x80
   while (#bytes % 64) ~= 56 do
     bytes[#bytes + 1] = 0
   end
-
-  for i = 7, 0, -1 do
-    bytes[#bytes + 1] = band(rshift(bit_len, i * 8), 0xff)
-  end
+  push_be32(bytes, math.floor(bit_len / MOD32))
+  push_be32(bytes, bit_len % MOD32)
 
   local h0,h1,h2,h3,h4,h5,h6,h7 =
     0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19
@@ -103,16 +111,42 @@ local function sha256(msg)
     h7 = add32(h7, h)
   end
 
-  return string.format("%08x%08x%08x%08x%08x%08x%08x%08x", h0,h1,h2,h3,h4,h5,h6,h7)
+  return { u32(h0), u32(h1), u32(h2), u32(h3), u32(h4), u32(h5), u32(h6), u32(h7) }
+end
+
+local function words_to_hex(words)
+  local parts = {}
+  for i = 1, #words do
+    -- Split into 16-bit halves so formatting never depends on the runtime
+    -- handling of %x for values >= 2^31.
+    local v = words[i]
+    parts[i] = string.format("%04x%04x", math.floor(v / 0x10000), v % 0x10000)
+  end
+  return table.concat(parts)
+end
+
+local function words_to_bin(words)
+  local bytes = {}
+  for i = 1, #words do
+    push_be32(bytes, words[i])
+  end
+  local chars = {}
+  for i = 1, #bytes do
+    chars[i] = string.char(bytes[i])
+  end
+  return table.concat(chars)
+end
+
+function CryptoHmac.sha256_hex(msg)
+  return words_to_hex(sha256_words(msg))
 end
 
 function CryptoHmac.hmac_sha256_hex(key, msg)
   local block_size = 64
 
   if #key > block_size then
-    key = bytes2str(str2bytes(sha256(key):gsub("..", function(h) return string.char(tonumber(h, 16)) end)))
+    key = words_to_bin(sha256_words(key))
   end
-
   if #key < block_size then
     key = key .. string.rep("\0", block_size - #key)
   end
@@ -121,13 +155,12 @@ function CryptoHmac.hmac_sha256_hex(key, msg)
   local i_key_pad = {}
   for i = 1, block_size do
     local kb = key:byte(i)
-    o_key_pad[i] = string.char(bxor(kb, 0x5c))
-    i_key_pad[i] = string.char(bxor(kb, 0x36))
+    o_key_pad[i] = string.char(u32(bxor(kb, 0x5c)) % 256)
+    i_key_pad[i] = string.char(u32(bxor(kb, 0x36)) % 256)
   end
 
-  local inner = sha256(table.concat(i_key_pad) .. msg)
-  local inner_bytes = inner:gsub("..", function(h) return string.char(tonumber(h, 16)) end)
-  return sha256(table.concat(o_key_pad) .. inner_bytes)
+  local inner = words_to_bin(sha256_words(table.concat(i_key_pad) .. msg))
+  return words_to_hex(sha256_words(table.concat(o_key_pad) .. inner))
 end
 
 return CryptoHmac

@@ -1,5 +1,18 @@
 {
   "shared_secret": "change-me",
-  "outbox_path": "outbox/events.log",
-  "session_id_prefix": "cp77"
+  "outbox_path": "outbox/events.jsonl",
+  "status_path": "outbox/consumer_status.txt",
+  "session_id_prefix": "cp77",
+  "max_outbox_bytes": 10485760,
+  "sample_interval_s": 0.2,
+  "warmup_s": 3.0,
+  "min_damage_pct": 1.0,
+  "heal_threshold_pct": 10.0,
+  "heal_window_s": 3.0,
+  "combat_poll_s": 0.5,
+  "enable_damage": true,
+  "enable_heal": true,
+  "enable_death": true,
+  "enable_combat": true,
+  "enable_quests": true
 }

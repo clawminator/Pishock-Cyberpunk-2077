@@ -1,71 +1,76 @@
+-- Append-only signed JSONL outbox.
+--
+-- Each line is a self-contained JSON object:
+--
+--   {"v":1,"sig":"<64 hex>","event":<event json>}
+--
+-- `sig` is HMAC-SHA256 over the exact bytes of <event json> as written, so the
+-- consumer can verify the line without re-serialising anything.
+--
+-- CET's sandbox has no os.execute / mkdir, so the `outbox/` directory ships
+-- with the mod. The file is truncated when the emitter starts (old events are
+-- stale) and again if it grows past max_bytes; the consumer detects both.
+
 local JsonMin = require("lib/json_min")
 local CryptoHmac = require("lib/crypto_hmac")
 
 local Outbox = {}
 Outbox.__index = Outbox
 
-local function ensure_dir(path)
-  local is_windows = package.config:sub(1, 1) == "\\"
-  if is_windows then
-    os.execute(string.format('if not exist "%s" mkdir "%s"', path, path))
-  else
-    os.execute(string.format('mkdir -p "%s"', path))
-  end
+Outbox.FORMAT_VERSION = 1
+Outbox.FALLBACK_PATH = "pishock_events.jsonl"
+
+function Outbox.encode_line(event_table, shared_secret)
+  local json_body = JsonMin.encode(event_table)
+  local sig_hex = CryptoHmac.hmac_sha256_hex(shared_secret, json_body)
+  return string.format('{"v":%d,"sig":"%s","event":%s}\n', Outbox.FORMAT_VERSION, sig_hex, json_body)
 end
 
-local function load_config(config_path)
-  local f = io.open(config_path, "r")
-  if not f then
-    return {
-      shared_secret = "change-me",
-      outbox_path = "outbox/events.log",
-      session_id_prefix = "cp77",
-    }
-  end
-
-  local content = f:read("*a")
-  f:close()
-
-  local shared_secret = content:match('"shared_secret"%s*:%s*"([^"]+)"') or "change-me"
-  local outbox_path = content:match('"outbox_path"%s*:%s*"([^"]+)"') or "outbox/events.log"
-  local session_id_prefix = content:match('"session_id_prefix"%s*:%s*"([^"]+)"') or "cp77"
-
-  return {
-    shared_secret = shared_secret,
-    outbox_path = outbox_path,
-    session_id_prefix = session_id_prefix,
-  }
-end
-
-function Outbox.new(config_path, default_outbox_path)
-  local cfg = load_config(config_path)
-  local outbox_path = cfg.outbox_path or default_outbox_path
-
-  ensure_dir("outbox")
-
-  local handle, err = io.open(outbox_path, "a+")
+-- opts: path, shared_secret, max_bytes
+-- Returns outbox, nil on success or nil, error_message.
+function Outbox.new(opts)
+  local path = opts.path
+  local handle, err = io.open(path, "w")
   if not handle then
-    error("Could not open outbox file: " .. tostring(err))
+    -- e.g. outbox/ was not copied with the mod: fall back to the mod root.
+    local fallback_err = err
+    path = Outbox.FALLBACK_PATH
+    handle, err = io.open(path, "w")
+    if not handle then
+      return nil, string.format("cannot open outbox (%s; %s)", tostring(fallback_err), tostring(err))
+    end
   end
 
-  local self = setmetatable({
+  return setmetatable({
     handle = handle,
-    shared_secret = cfg.shared_secret,
-    _session_id = string.format("%s-%d", cfg.session_id_prefix, math.floor(os.time())),
-  }, Outbox)
-
-  return self
-end
-
-function Outbox:session_id()
-  return self._session_id
+    path = path,
+    shared_secret = opts.shared_secret,
+    max_bytes = opts.max_bytes or (10 * 1024 * 1024),
+    bytes_written = 0,
+    lines_written = 0,
+  }, Outbox), nil
 end
 
 function Outbox:emit(event_table)
-  local json_body = JsonMin.encode(event_table)
-  local sig_hex = CryptoHmac.hmac_sha256_hex(self.shared_secret, json_body)
-  self.handle:write(sig_hex, "\t", json_body, "\n")
+  if not self.handle then
+    return false
+  end
+  local line = Outbox.encode_line(event_table, self.shared_secret)
+
+  if self.bytes_written + #line > self.max_bytes then
+    self.handle:close()
+    self.handle = io.open(self.path, "w")
+    self.bytes_written = 0
+    if not self.handle then
+      return false
+    end
+  end
+
+  self.handle:write(line)
   self.handle:flush()
+  self.bytes_written = self.bytes_written + #line
+  self.lines_written = self.lines_written + 1
+  return true
 end
 
 function Outbox:close()
