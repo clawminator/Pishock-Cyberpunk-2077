@@ -82,6 +82,21 @@ def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, value))
 
 
+def _as_bool(value: Any, key: str) -> bool:
+    """Parse a YAML boolean strictly. `bool("false")` is True, so a quoted
+    `allow_shock: "false"` must not be passed through bool()."""
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "yes", "on", "1"):
+        return True
+    if isinstance(value, str) and value.strip().lower() in ("false", "no", "off", "0"):
+        return False
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    raise ConfigError(f"service.{key} must be true or false, got {value!r}")
+
+
 def _validate_mappings(raw: Any) -> dict[str, dict[str, Any]]:
     if raw is None:
         return {}
@@ -141,8 +156,8 @@ def load_config(path: str | Path) -> ServiceConfig:
         bind_host=service.get("bind_host", "127.0.0.1"),
         bind_port=int(service.get("bind_port", 8787)),
         shared_secret=str(shared_secret),
-        dry_run=bool(service.get("dry_run", True)),
-        allow_shock=bool(service.get("allow_shock", False)),
+        dry_run=_as_bool(service.get("dry_run", True), "dry_run"),
+        allow_shock=_as_bool(service.get("allow_shock", False), "allow_shock"),
         max_intensity=_clamp(int(service.get("max_intensity", 20)), 1, PISHOCK_MAX_INTENSITY),
         max_duration_ms=_clamp(int(service.get("max_duration_ms", 2000)), MIN_DURATION_MS, PISHOCK_MAX_DURATION_MS),
         default_cooldown_ms=max(0, int(service.get("default_cooldown_ms", 1500))),

@@ -203,9 +203,11 @@ class Ingester:
             return self._skip(limited, event_type, logging.INFO)
 
         result = self.output.send(action, event)
+        # Recorded even on failure: a timed-out request may still have reached
+        # the device, so it must count toward the global limits.
+        self.rate.record(now_s)
         if not result.ok:
             return self._skip(f"output_failed:{result.detail}", event_type)
-        self.rate.record(now_s)
         self.last_summary = f"{event_type} -> {action.mode} {action.intensity}"
         return self._count(Outcome("sent", event_type=event_type, action=action))
 

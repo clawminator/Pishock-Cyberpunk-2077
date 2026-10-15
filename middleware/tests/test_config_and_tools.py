@@ -56,6 +56,18 @@ def test_config_rejects_invalid_mode(tmp_path):
         load_config(_write_cfg(tmp_path, {"mode: beep\n    intensity: 1\n    duration_ms: 1000": "mode: zap\n    intensity: 1\n    duration_ms: 1000"}))
 
 
+@pytest.mark.parametrize("raw,expected", [("true", True), ('"false"', False), ("'no'", False), ("0", False)])
+def test_config_booleans_are_parsed_strictly(tmp_path, raw, expected):
+    # bool("false") is True: a quoted value must not silently enable shock.
+    cfg = load_config(_write_cfg(tmp_path, {"allow_shock: false ": f"allow_shock: {raw} "}))
+    assert cfg.allow_shock is expected
+
+
+def test_config_rejects_non_boolean_flag(tmp_path):
+    with pytest.raises(ConfigError):
+        load_config(_write_cfg(tmp_path, {"allow_shock: false ": "allow_shock: maybe "}))
+
+
 def test_config_requires_secret(tmp_path):
     with pytest.raises(ConfigError):
         load_config(_write_cfg(tmp_path, {"shared_secret: change-me": "shared_secret: ''"}))
@@ -95,6 +107,14 @@ def test_pishock_result_interpretation(monkeypatch, status, text, ok):
     result = pishock_http.send_pishock_http(mode="shock", intensity=500, duration_ms=60_000, username="u", apikey="k", code="c", name="n")
     assert result.ok is ok
     assert sent["Op"] == 0 and sent["Intensity"] == 100 and sent["Duration"] == 15  # device limits enforced
+
+
+@pytest.mark.parametrize("duration_ms,seconds", [(300, 1), (1000, 1), (1500, 1), (1999, 1), (2000, 2), (2500, 2)])
+def test_pishock_duration_never_exceeds_requested(monkeypatch, duration_ms, seconds):
+    sent = {}
+    monkeypatch.setattr(pishock_http.requests, "post", lambda url, json, timeout: sent.update(json) or _Resp(200, "Operation Succeeded."))
+    pishock_http.send_pishock_http(mode="vibrate", intensity=5, duration_ms=duration_ms, username="u", apikey="k", code="c", name="n")
+    assert sent["Duration"] == seconds
 
 
 def test_pishock_network_error_is_not_raised(monkeypatch):

@@ -126,7 +126,9 @@ extra checks on top.
    instead of shock until all three hold.
 3. **Hard caps:** every output is clamped to `max_intensity` and
    `max_duration_ms`. Those are clamped to the device limits of 1–100 and
-   ≤ 15 s, and clamped again just before the API call.
+   ≤ 15 s, and clamped again just before the API call. The PiShock API takes
+   whole seconds, so durations are rounded *down* (minimum 1 s): every
+   mapping under 2000 ms runs for 1 s.
 4. **Rate limits:** per-event `cooldown_ms`, a global gap between any two
    outputs (`global_cooldown_ms`, 500 ms) and `max_actions_per_minute` (20).
 5. **No replay:** the consumer only reads lines written after it started. Events

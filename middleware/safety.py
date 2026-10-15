@@ -108,7 +108,9 @@ def main(argv: list[str] | None = None) -> int:
         print("emergency stop cleared" if was else "emergency stop was not engaged")
         return 0
     estop.engage("engaged via middleware-estop CLI")
-    print(f"EMERGENCY STOP ENGAGED: {estop.path}")
+    # Relative paths resolve against the working directory; show the real file
+    # so it is obvious if this is not the one the consumer is watching.
+    print(f"EMERGENCY STOP ENGAGED: {estop.path.resolve()}")
     return 0
 
 

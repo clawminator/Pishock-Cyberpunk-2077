@@ -156,6 +156,27 @@ def test_failed_output_is_reported(make_ingester):
     assert ingester.process_line(build_line(_event("test_pulse"), "test-secret")).reason == "output_failed:nope"
 
 
+def test_failed_output_still_counts_toward_rate_limit(tmp_path, make_ingester):
+    # A timed-out request may have reached the device; the next event must
+    # still respect the global gap.
+    from middleware.output import OutputResult
+
+    ingester, _ = make_ingester(
+        safety=SafetyConfig(max_actions_per_minute=1000, global_cooldown_ms=500, max_event_age_s=10, estop_file=str(tmp_path / "E"))
+    )
+
+    class TimesOut:
+        name = "timeout"
+
+        def send(self, action, event):
+            return OutputResult(ok=False, detail="request failed: timeout")
+
+    ingester.output = TimesOut()
+    assert ingester.process_line(build_line(_event("test_pulse"), "test-secret")).status == "skipped"
+    ingester.output = SimulatedOutput()
+    assert ingester.process_line(build_line(_event("player_healed"), "test-secret")).reason == "global_cooldown"
+
+
 # --- tailer -------------------------------------------------------------------
 
 def test_tailer_starts_at_end_and_reads_only_new_lines(tmp_path):

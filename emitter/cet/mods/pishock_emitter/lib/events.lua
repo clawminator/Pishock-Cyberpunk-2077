@@ -81,8 +81,9 @@ function Events:sample_health(elapsed)
     return
   end
 
-  -- Warm-up: absorb the health jumps that happen while a save loads.
-  if self.warmup > 0 then
+  -- Warm-up: absorb the health jumps that happen while a save loads. With
+  -- warmup_s = 0 the first sample still has to become the baseline.
+  if self.warmup > 0 or self.last_health == nil then
     self.warmup = self.warmup - elapsed
     self.last_health = cur
     self.dead = cur <= 0

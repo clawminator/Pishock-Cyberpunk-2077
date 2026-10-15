@@ -67,8 +67,10 @@ def send_pishock_http(
         "Name": name,
         "Op": OPERATION_MAP[mode],
         "Intensity": intensity,
-        # Legacy endpoint expects seconds; clamp minimum to 1 second.
-        "Duration": max(1, int(round(duration_ms / 1000))),
+        # Legacy endpoint expects whole seconds. Round down so the configured
+        # max_duration_ms is never exceeded (round() sent 2 s for 1500 ms);
+        # the device minimum is 1 second.
+        "Duration": max(1, duration_ms // 1000),
     }
 
     try:

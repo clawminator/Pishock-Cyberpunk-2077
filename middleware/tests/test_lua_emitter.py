@@ -117,6 +117,17 @@ def test_warmup_suppresses_load_jumps(cet):
     assert _types(cet) == ["emitter_ready"]
 
 
+def test_zero_warmup_does_not_crash(cet):
+    # warmup_s = 0 used to subtract from a nil baseline on every frame.
+    cfg = cet.mod_dir / "config.json"
+    cfg.write_text(cfg.read_text(encoding="utf-8").replace('"warmup_s": 3.0', '"warmup_s": 0'), encoding="utf-8")
+    cet.init()
+    cet.spawn_player(health=400, max_health=400, warmup=0.3)  # one sample = baseline
+    cet.set_health(300)
+    damage = [e for e in _events(cet) if e["event_type"] == "player_damaged"]
+    assert len(damage) == 1 and damage[0]["context"]["damage"] == 100
+
+
 def test_small_damage_accumulates_until_threshold(cet):
     cet.init()
     cet.spawn_player(health=1000, max_health=1000)
