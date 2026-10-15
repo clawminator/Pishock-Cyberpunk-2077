@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+build/
+dist/
+
+# Local config / secrets
+middleware/config.local.yaml
+emitter/cet/mods/pishock_emitter/config.json
+
+# Runtime state
+logs/
+middleware/state/
+emitter/cet/mods/pishock_emitter/outbox/*.jsonl
+emitter/cet/mods/pishock_emitter/outbox/*.log
+emitter/cet/mods/pishock_emitter/outbox/consumer_status.*
+emitter/cet/mods/pishock_emitter/pishock_events.jsonl

@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .config import ServiceConfig
+from .config import MIN_DURATION_MS, VALID_MODES, ServiceConfig
 
 
 @dataclass(frozen=True)
@@ -58,7 +58,7 @@ class PolicyEngine:
         damage_ratio = max(0.0, min(1.0, damage / max_health))
         return int(round(damage_ratio * self.config.session_max_shock_level))
 
-    def decide(self, event: dict[str, Any]) -> Action:
+    def decide(self, event: dict[str, Any], now_ms: int | None = None) -> Action:
         """Return an allowed action or raise a policy-related exception."""
 
         event_type = event["event_type"]
@@ -67,29 +67,38 @@ class PolicyEngine:
             raise PolicyError(f"No mapping for event_type={event_type}")
 
         mode = mapping.get("mode", "beep")
+        if mode not in VALID_MODES:
+            raise PolicyError(f"Invalid mode {mode!r} for event_type={event_type}")
         intensity = int(mapping.get("intensity", 1))
         duration_ms = int(mapping.get("duration_ms", 300))
         target = mapping.get("target", self.config.pishock.code)
 
         # Shock requires explicit global opt-in and per-event armed status.
-        if mode == "shock" and (not self.config.allow_shock or not event.get("armed", False)):
-            raise PolicyError("Shock mode is disabled or event is not armed")
+        # `armed` must be literally true, not merely truthy.
+        if mode == "shock" and (not self.config.allow_shock or event.get("armed") is not True):
+            fallback = mapping.get("fallback_mode")
+            if fallback not in ("vibrate", "beep"):
+                raise PolicyError("Shock mode is disabled or event is not armed")
+            mode = fallback
 
-        # For damage events mapped to shock, scale intensity by damage percentage.
-        if mode == "shock" and event_type == "player_damaged":
+        # Damage events scale intensity by damage percentage. Shock requires the
+        # context; for vibrate/beep the configured intensity is used without it.
+        if event_type == "player_damaged" and mapping.get("scale_with_damage", True):
             try:
                 intensity = self._damage_scaled_shock_intensity(event)
             except (KeyError, TypeError, ValueError) as exc:
-                raise PolicyError(
-                    "player_damaged shock requires numeric context.damage and context.max_health"
-                ) from exc
+                if mode == "shock":
+                    raise PolicyError(
+                        "player_damaged shock requires numeric context.damage and context.max_health"
+                    ) from exc
 
         # Hard caps prevent unsafe or invalid values from config mistakes.
         intensity = min(max(1, intensity), self.config.max_intensity)
-        duration_ms = min(max(100, duration_ms), self.config.max_duration_ms)
+        duration_ms = min(max(MIN_DURATION_MS, duration_ms), self.config.max_duration_ms)
 
         cooldown_ms = int(mapping.get("cooldown_ms", self.config.default_cooldown_ms))
-        now_ms = int(time.time() * 1000)
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
         key = (event_type, target)
         last = self._last_fired_ms.get(key)
         if last is not None and now_ms - last < cooldown_ms:

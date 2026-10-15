@@ -4,8 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyberpunk-pishock-middleware"
-version = "0.3.0"
-version = "0.2.1"
+version = "1.0.0"
 description = "Local safety middleware for Cyberpunk events to PiShock"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,11 +18,20 @@ dependencies = [
 test = [
   "pytest>=8.0",
   "httpx>=0.27",
+  # Runs the CET Lua emitter under LuaJIT 2.1 (same runtime as CET) in tests.
+  "lupa>=2.0",
 ]
 
 [project.scripts]
 middleware-setup = "middleware.setup_wizard:run_wizard"
 middleware-file-ingest = "middleware.file_ingest:main"
+middleware-simulate = "middleware.simulate:main"
+middleware-estop = "middleware.safety:main"
+middleware-install-mod = "middleware.install_mod:main"
+
+[tool.setuptools]
+packages = ["middleware"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = ["middleware/tests"]

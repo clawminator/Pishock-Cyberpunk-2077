@@ -33,14 +33,17 @@ source "$VENV_DIR/bin/activate"
 python -m ensurepip --upgrade >/dev/null 2>&1 || true
 
 # Install project runtime + test dependencies from approved source.
-python -m pip install -e '.[test]' --no-build-isolation --index-url "$PIP_INDEX_URL"
+# Python 3.12+ venvs ship without setuptools, which --no-build-isolation needs.
+python -m pip install --disable-pip-version-check "setuptools>=68" wheel --index-url "$PIP_INDEX_URL"
+python -m pip install --disable-pip-version-check -e '.[test]' --no-build-isolation --index-url "$PIP_INDEX_URL"
 
 python - <<'PY'
-import fastapi, requests, yaml, pytest
+import fastapi, requests, yaml, pytest, lupa
 print('setup-check: fastapi', fastapi.__version__)
 print('setup-check: requests', requests.__version__)
 print('setup-check: pyyaml', yaml.__version__)
 print('setup-check: pytest', pytest.__version__)
+print('setup-check: lupa', lupa.__version__)
 PY
 
 echo "setup complete: activate with 'source $VENV_DIR/bin/activate'"

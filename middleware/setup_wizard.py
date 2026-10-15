@@ -6,7 +6,25 @@ safety defaults before launching the service.
 
 from __future__ import annotations
 
+import json
+import secrets
 from pathlib import Path
+
+from .config import DEFAULT_ESTOP_PATH, DEFAULT_OUTBOX_PATH, LOCAL_CONFIG
+
+# Safety-oriented starter profile:
+# - damage events are the only shock mapping, and fall back to vibrate while
+#   shock is disabled or the game is not armed
+# - positive events default to vibrate
+# - damage->shock intensity is computed dynamically from damage percent
+DEFAULT_EVENT_MAPPINGS = {
+    "player_damaged": {"mode": "shock", "fallback_mode": "vibrate", "intensity": 8, "duration_ms": 400, "cooldown_ms": 2000},
+    "player_healed": {"mode": "vibrate", "intensity": 10, "duration_ms": 500, "cooldown_ms": 1500},
+    "player_death": {"mode": "beep", "intensity": 1, "duration_ms": 1000, "cooldown_ms": 5000},
+    "combat_start": {"mode": "vibrate", "intensity": 6, "duration_ms": 300, "cooldown_ms": 5000},
+    "quest_completed": {"mode": "vibrate", "intensity": 14, "duration_ms": 700, "cooldown_ms": 4000},
+    "test_pulse": {"mode": "beep", "intensity": 1, "duration_ms": 300, "cooldown_ms": 1000},
+}
 
 
 def _ask(prompt: str, default: str | None = None) -> str:
@@ -22,39 +40,64 @@ def _ask(prompt: str, default: str | None = None) -> str:
     return value
 
 
+def _ask_bool(prompt: str, default: bool) -> bool:
+    return _ask(f"{prompt} (true/false)", "true" if default else "false").lower() in ("true", "yes", "y", "1")
+
+
+def _q(value: object) -> str:
+    """Quote a scalar for YAML. JSON strings are valid YAML scalars."""
+
+    return json.dumps(str(value))
+
+
 def _emit_yaml(config: dict) -> str:
     """Render a small deterministic YAML document without external deps."""
 
     service = config["service"]
+    safety = config["safety"]
+    ingest = config["ingest"]
     pishock = config["pishock"]
     event_mappings = config["event_mappings"]
 
     lines = [
         "service:",
-        f"  bind_host: {service['bind_host']}",
+        f"  bind_host: {_q(service['bind_host'])}",
         f"  bind_port: {service['bind_port']}",
-        f"  shared_secret: {service['shared_secret']}",
+        f"  shared_secret: {_q(service['shared_secret'])}",
         f"  dry_run: {str(service['dry_run']).lower()}",
         f"  allow_shock: {str(service['allow_shock']).lower()}",
         f"  max_intensity: {service['max_intensity']}",
         f"  max_duration_ms: {service['max_duration_ms']}",
         f"  default_cooldown_ms: {service['default_cooldown_ms']}",
         f"  session_max_shock_level: {service['session_max_shock_level']}",
+        f"  subsecond_vibrate_beep: {str(service['subsecond_vibrate_beep']).lower()}",
+        "",
+        "safety:",
+        f"  max_actions_per_minute: {safety['max_actions_per_minute']}",
+        f"  global_cooldown_ms: {safety['global_cooldown_ms']}",
+        f"  max_event_age_s: {safety['max_event_age_s']}",
+        f"  estop_file: {_q(safety['estop_file'])}",
+        "",
+        "ingest:",
+        f"  outbox_path: {_q(ingest['outbox_path'])}",
+        f"  poll_interval_s: {ingest['poll_interval_s']}",
         "",
         "pishock:",
-        f"  username: {pishock['username']}",
-        f"  apikey: {pishock['apikey']}",
-        f"  code: {pishock['code']}",
-        f"  name: {pishock['name']}",
+        f"  username: {_q(pishock['username'])}",
+        f"  apikey: {_q(pishock['apikey'])}",
+        f"  code: {_q(pishock['code'])}",
+        f"  name: {_q(pishock['name'])}",
         "",
         "event_mappings:",
     ]
 
     for event_name, mapping in event_mappings.items():
+        lines.append(f"  {event_name}:")
+        lines.append(f"    mode: {mapping['mode']}")
+        if "fallback_mode" in mapping:
+            lines.append(f"    fallback_mode: {mapping['fallback_mode']}")
         lines.extend(
             [
-                f"  {event_name}:",
-                f"    mode: {mapping['mode']}",
                 f"    intensity: {mapping['intensity']}",
                 f"    duration_ms: {mapping['duration_ms']}",
                 f"    cooldown_ms: {mapping['cooldown_ms']}",
@@ -64,7 +107,7 @@ def _emit_yaml(config: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
+def run_wizard(output_path: str | Path = LOCAL_CONFIG) -> Path:
     """Prompt for required values and write config to disk."""
 
     print("Cyberpunk PiShock Middleware - First Run Setup")
@@ -73,20 +116,21 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
     username = _ask("PiShock username")
     apikey = _ask("PiShock API key")
     code = _ask("PiShock share code")
-    shared_secret = _ask("Shared HMAC secret for game->middleware events")
+    shared_secret = _ask("Shared HMAC secret for game->middleware events (Enter = generate)", "")
+    if not shared_secret:
+        shared_secret = secrets.token_hex(16)
+        print(f"  generated secret: {shared_secret}")
+    while '"' in shared_secret or "\\" in shared_secret:
+        shared_secret = _ask("Secret must not contain quotes or backslashes; enter another")
 
-    bind_host = _ask("Bind host", "127.0.0.1")
-    bind_port = int(_ask("Bind port", "8787"))
-    dry_run = _ask("Enable dry_run? (true/false)", "true").lower() == "true"
-    allow_shock = _ask("Allow shock mode? (true/false)", "false").lower() == "true"
-    session_max_shock_level = int(
-        _ask("Session max shock level (1-100)", "100")
-    )
+    outbox_path = _ask("Emitter outbox file (set by middleware.install_mod)", DEFAULT_OUTBOX_PATH)
+    bind_host = _ask("Bind host (HTTP mode only)", "127.0.0.1")
+    bind_port = int(_ask("Bind port (HTTP mode only)", "8787"))
+    dry_run = _ask_bool("Enable dry_run (simulated output only)?", True)
+    allow_shock = _ask_bool("Allow shock mode?", False)
+    session_max_shock_level = int(_ask("Session max shock level (1-100)", "100"))
+    max_intensity = int(_ask("Hard max intensity for any output (1-100)", "20"))
 
-    # Safety-oriented starter profile:
-    # - damage events are the only shock mapping
-    # - positive events default to vibrate
-    # - damage->shock intensity is computed dynamically from damage percent
     config = {
         "service": {
             "bind_host": bind_host,
@@ -95,24 +139,26 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
             "dry_run": dry_run,
             # Needed so player_damaged -> shock mapping can operate when armed.
             "allow_shock": allow_shock,
-            "max_intensity": 20,
+            "max_intensity": min(max(1, max_intensity), 100),
             "max_duration_ms": 2000,
             "default_cooldown_ms": 1500,
             "session_max_shock_level": min(max(1, session_max_shock_level), 100),
+            "subsecond_vibrate_beep": False,
         },
+        "safety": {
+            "max_actions_per_minute": 20,
+            "global_cooldown_ms": 500,
+            "max_event_age_s": 10,
+            "estop_file": DEFAULT_ESTOP_PATH,
+        },
+        "ingest": {"outbox_path": outbox_path, "poll_interval_s": 0.1},
         "pishock": {
             "username": username,
             "apikey": apikey,
             "code": code,
             "name": "CyberpunkBridge",
         },
-        "event_mappings": {
-            "player_damaged": {"mode": "shock", "intensity": 8, "duration_ms": 400, "cooldown_ms": 2000},
-            "player_healed": {"mode": "vibrate", "intensity": 10, "duration_ms": 500, "cooldown_ms": 1500},
-            "quest_completed": {"mode": "vibrate", "intensity": 14, "duration_ms": 700, "cooldown_ms": 4000},
-            "player_damaged": {"mode": "vibrate", "intensity": 12, "duration_ms": 600, "cooldown_ms": 2000},
-            "player_death": {"mode": "beep", "intensity": 1, "duration_ms": 1000, "cooldown_ms": 5000},
-        },
+        "event_mappings": DEFAULT_EVENT_MAPPINGS,
     }
 
     out = Path(output_path)
@@ -120,7 +166,8 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
     out.write_text(_emit_yaml(config), encoding="utf-8")
 
     print(f"\nConfig written: {out}")
-    print("Set MIDDLEWARE_CONFIG to this path before running uvicorn.")
+    print("Next: install the emitter into the game with")
+    print(f"  python -m middleware.install_mod --config {out}")
     return out
 
 
