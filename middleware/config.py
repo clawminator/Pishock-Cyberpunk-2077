@@ -6,6 +6,7 @@ strongly typed data structures. The primary source is a YAML file.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,36 @@ MIN_DURATION_MS = 100
 VALID_MODES = ("shock", "vibrate", "beep")
 
 DEFAULT_OUTBOX_PATH = "emitter/cet/mods/pishock_emitter/outbox/events.jsonl"
+DEFAULT_ESTOP_PATH = "middleware/state/ESTOP"
+
+# The repository checkout. Relative paths in a config file resolve against
+# this, not the working directory, so every command (consumer, e-stop CLI,
+# simulator) agrees on the same files no matter where it is started from.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+LOCAL_CONFIG = PROJECT_ROOT / "middleware" / "config.local.yaml"
+EXAMPLE_CONFIG = PROJECT_ROOT / "middleware" / "config.example.yaml"
+
+
+def resolve_path(value: str | Path) -> str:
+    """Anchor a config path at PROJECT_ROOT unless it is already absolute."""
+
+    path = Path(value).expanduser()
+    return str(path if path.is_absolute() else PROJECT_ROOT / path)
+
+
+def default_config_path() -> str:
+    """The config every CLI uses when --config is not given.
+
+    $MIDDLEWARE_CONFIG, else the setup wizard's config.local.yaml if it
+    exists, else config.example.yaml. Shared so the consumer and
+    `middleware-estop` cannot silently pick different configs.
+    """
+
+    env = os.getenv("MIDDLEWARE_CONFIG")
+    if env:
+        return env
+    return str(LOCAL_CONFIG if LOCAL_CONFIG.exists() else EXAMPLE_CONFIG)
 
 
 class ConfigError(ValueError):
@@ -46,14 +77,14 @@ class SafetyConfig:
     # Events older (or newer) than this are dropped; 0 disables the check.
     max_event_age_s: float = 10.0
     # While this file exists, no output is produced.
-    estop_file: str = "middleware/state/ESTOP"
+    estop_file: str = resolve_path(DEFAULT_ESTOP_PATH)
 
 
 @dataclass(frozen=True)
 class IngestConfig:
     """Where the file consumer reads events from."""
 
-    outbox_path: str = DEFAULT_OUTBOX_PATH
+    outbox_path: str = resolve_path(DEFAULT_OUTBOX_PATH)
     poll_interval_s: float = 0.1
 
 
@@ -74,6 +105,9 @@ class ServiceConfig:
     session_max_shock_level: int
     pishock: PiShockCredentials
     event_mappings: dict[str, dict[str, Any]]
+    # Send vibrate/beep under 1.5 s in milliseconds instead of whole seconds.
+    # Undocumented in the PiShock API, so opt-in; never used for shock.
+    subsecond_vibrate_beep: bool = False
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
 
@@ -144,11 +178,11 @@ def load_config(path: str | Path) -> ServiceConfig:
         max_actions_per_minute=max(1, int(safety_raw.get("max_actions_per_minute", 20))),
         global_cooldown_ms=max(0, int(safety_raw.get("global_cooldown_ms", 500))),
         max_event_age_s=max(0.0, float(safety_raw.get("max_event_age_s", 10.0))),
-        estop_file=str(safety_raw.get("estop_file", SafetyConfig.estop_file)),
+        estop_file=resolve_path(safety_raw.get("estop_file", DEFAULT_ESTOP_PATH)),
     )
     ingest_raw = raw.get("ingest") or {}
     ingest = IngestConfig(
-        outbox_path=str(ingest_raw.get("outbox_path", DEFAULT_OUTBOX_PATH)),
+        outbox_path=resolve_path(ingest_raw.get("outbox_path", DEFAULT_OUTBOX_PATH)),
         poll_interval_s=max(0.02, float(ingest_raw.get("poll_interval_s", 0.1))),
     )
 
@@ -164,6 +198,7 @@ def load_config(path: str | Path) -> ServiceConfig:
         session_max_shock_level=_clamp(int(service.get("session_max_shock_level", 100)), 1, PISHOCK_MAX_INTENSITY),
         pishock=pishock,
         event_mappings=_validate_mappings(raw.get("event_mappings")),
+        subsecond_vibrate_beep=_as_bool(service.get("subsecond_vibrate_beep", False), "subsecond_vibrate_beep"),
         safety=safety,
         ingest=ingest,
     )

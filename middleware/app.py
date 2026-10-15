@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -18,7 +17,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 
-from .config import ServiceConfig, load_config
+from .config import ServiceConfig, default_config_path, load_config
 from .pishock_http import send_pishock_http
 from .policy import CooldownError, PolicyEngine, PolicyError
 from .safety import EmergencyStop, RateLimiter
@@ -137,10 +136,9 @@ def create_app(config: ServiceConfig) -> FastAPI:
 
 
 def load_runtime_config() -> ServiceConfig:
-    """Load config from `MIDDLEWARE_CONFIG` or the example fallback path."""
+    """Load config from `MIDDLEWARE_CONFIG`, config.local.yaml or the example."""
 
-    cfg_path = os.getenv("MIDDLEWARE_CONFIG", "middleware/config.example.yaml")
-    return load_config(cfg_path)
+    return load_config(default_config_path())
 
 
 app = create_app(load_runtime_config())

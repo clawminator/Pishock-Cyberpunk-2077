@@ -10,7 +10,7 @@ import json
 import secrets
 from pathlib import Path
 
-from .config import DEFAULT_OUTBOX_PATH
+from .config import DEFAULT_ESTOP_PATH, DEFAULT_OUTBOX_PATH, LOCAL_CONFIG
 
 # Safety-oriented starter profile:
 # - damage events are the only shock mapping, and fall back to vibrate while
@@ -70,6 +70,7 @@ def _emit_yaml(config: dict) -> str:
         f"  max_duration_ms: {service['max_duration_ms']}",
         f"  default_cooldown_ms: {service['default_cooldown_ms']}",
         f"  session_max_shock_level: {service['session_max_shock_level']}",
+        f"  subsecond_vibrate_beep: {str(service['subsecond_vibrate_beep']).lower()}",
         "",
         "safety:",
         f"  max_actions_per_minute: {safety['max_actions_per_minute']}",
@@ -106,7 +107,7 @@ def _emit_yaml(config: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
+def run_wizard(output_path: str | Path = LOCAL_CONFIG) -> Path:
     """Prompt for required values and write config to disk."""
 
     print("Cyberpunk PiShock Middleware - First Run Setup")
@@ -142,12 +143,13 @@ def run_wizard(output_path: str = "middleware/config.local.yaml") -> Path:
             "max_duration_ms": 2000,
             "default_cooldown_ms": 1500,
             "session_max_shock_level": min(max(1, session_max_shock_level), 100),
+            "subsecond_vibrate_beep": False,
         },
         "safety": {
             "max_actions_per_minute": 20,
             "global_cooldown_ms": 500,
             "max_event_age_s": 10,
-            "estop_file": "middleware/state/ESTOP",
+            "estop_file": DEFAULT_ESTOP_PATH,
         },
         "ingest": {"outbox_path": outbox_path, "poll_interval_s": 0.1},
         "pishock": {

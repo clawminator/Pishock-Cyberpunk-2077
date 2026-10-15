@@ -20,6 +20,15 @@ class OutputResult:
     detail: str = ""
 
 
+def describe_device_duration(mode: str, duration_ms: int, subsecond: bool) -> str:
+    """What the device will actually run for, e.g. "1 s" or "400 ms"."""
+
+    from .pishock_http import api_duration  # pylint: disable=import-outside-toplevel
+
+    value = api_duration(mode, duration_ms, subsecond)
+    return f"{value} ms" if value >= 100 else f"{value} s"
+
+
 @dataclass
 class SimulatedOutput:
     """Logs what would be sent and keeps a history (used by tests and demos)."""
@@ -27,14 +36,17 @@ class SimulatedOutput:
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger("middleware.output"))
     history: list[tuple[str, Action]] = field(default_factory=list)
     name: str = "simulated"
+    # Mirrors service.subsecond_vibrate_beep so the log shows the real duration.
+    subsecond: bool = False
 
     def send(self, action: Action, event: dict[str, Any]) -> OutputResult:
         self.history.append((event.get("event_type", "?"), action))
         self.logger.info(
-            "[SIMULATED] %s intensity=%d duration_ms=%d (event=%s)",
+            "[SIMULATED] %s intensity=%d duration_ms=%d device=%s (event=%s)",
             action.mode,
             action.intensity,
             action.duration_ms,
+            describe_device_duration(action.mode, action.duration_ms, self.subsecond),
             event.get("event_type"),
         )
         return OutputResult(ok=True, detail="simulated")
@@ -76,12 +88,15 @@ class PiShockOutput:
             apikey=self.config.pishock.apikey,
             code=action.target,
             name=self.config.pishock.name,
+            subsecond=self.config.subsecond_vibrate_beep,
         )
         self.logger.info(
-            "[LIVE] %s intensity=%d duration_ms=%d (event=%s) -> status=%s body=%s",
+            "[LIVE] %s intensity=%d duration_ms=%d device=%s (event=%s) -> status=%s body=%s",
             action.mode,
             action.intensity,
             action.duration_ms,
+            describe_device_duration(action.mode, min(action.duration_ms, self.config.max_duration_ms),
+                                     self.config.subsecond_vibrate_beep),
             event.get("event_type"),
             result.status_code,
             str(result.body)[:200],

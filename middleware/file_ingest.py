@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .config import ServiceConfig, load_config
+from .config import ServiceConfig, default_config_path, load_config
 from .policy import CooldownError, PolicyEngine, PolicyError
 from .protocol import parse_line
 from .safety import EmergencyStop, RateLimiter
@@ -297,7 +297,7 @@ def build_output(config: ServiceConfig, live: bool, estop: EmergencyStop, logger
     if not live:
         if not config.dry_run:
             logger.warning("config has dry_run: false but --live was not given; output is SIMULATED")
-        return SimulatedOutput()
+        return SimulatedOutput(subsecond=config.subsecond_vibrate_beep)
     if config.dry_run:
         logger.error("--live requires dry_run: false in the config file; refusing to start")
         return None
@@ -310,8 +310,9 @@ def build_output(config: ServiceConfig, live: bool, estop: EmergencyStop, logger
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Consume signed CET outbox events (JSONL) and apply PiShock policy")
-    parser.add_argument("--config", default=os.getenv("MIDDLEWARE_CONFIG", "middleware/config.example.yaml"),
-                        help="config YAML (default: $MIDDLEWARE_CONFIG or middleware/config.example.yaml)")
+    parser.add_argument("--config", default=default_config_path(),
+                        help="config YAML (default: $MIDDLEWARE_CONFIG, else middleware/config.local.yaml"
+                             " if it exists, else middleware/config.example.yaml)")
     parser.add_argument("--outbox", help="path to the emitter's outbox/events.jsonl (default: ingest.outbox_path)")
     parser.add_argument("--live", action="store_true",
                         help="enable REAL PiShock output (also requires dry_run: false in config)")
@@ -337,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     if output is None:
         return 2
 
+    logger.info("emergency stop file: %s", estop.path)
     if estop.is_engaged():
         logger.warning("EMERGENCY STOP is engaged (%s); no output until `middleware-estop --clear`", estop.reason())
     if not outbox.parent.is_dir():

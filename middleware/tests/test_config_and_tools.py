@@ -9,8 +9,11 @@ from pathlib import Path
 
 import pytest
 
+from middleware import config as config_mod
 from middleware import install_mod, pishock_http, safety, setup_wizard
-from middleware.config import ConfigError, load_config
+from middleware.config import PROJECT_ROOT, ConfigError, load_config
+from middleware.output import PiShockOutput
+from middleware.policy import Action
 from middleware.protocol import build_line, parse_line, sign
 from middleware.simulate import Simulator
 
@@ -68,6 +71,29 @@ def test_config_rejects_non_boolean_flag(tmp_path):
         load_config(_write_cfg(tmp_path, {"allow_shock: false ": "allow_shock: maybe "}))
 
 
+def test_relative_config_paths_resolve_against_project_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # must not matter
+    cfg = load_config(EXAMPLE)
+    assert Path(cfg.safety.estop_file) == PROJECT_ROOT / "middleware" / "state" / "ESTOP"
+    assert Path(cfg.ingest.outbox_path) == PROJECT_ROOT / "emitter/cet/mods/pishock_emitter/outbox/events.jsonl"
+
+
+def test_absolute_config_paths_are_kept(tmp_path):
+    cfg = load_config(_write_cfg(tmp_path))
+    assert Path(cfg.safety.estop_file) == tmp_path / "ESTOP"
+
+
+def test_default_config_path_precedence(tmp_path, monkeypatch):
+    local = tmp_path / "config.local.yaml"
+    monkeypatch.setattr(config_mod, "LOCAL_CONFIG", local)
+    monkeypatch.delenv("MIDDLEWARE_CONFIG", raising=False)
+    assert config_mod.default_config_path() == str(config_mod.EXAMPLE_CONFIG)
+    local.write_text("x", encoding="utf-8")
+    assert config_mod.default_config_path() == str(local)
+    monkeypatch.setenv("MIDDLEWARE_CONFIG", "custom.yaml")
+    assert config_mod.default_config_path() == "custom.yaml"
+
+
 def test_config_requires_secret(tmp_path):
     with pytest.raises(ConfigError):
         load_config(_write_cfg(tmp_path, {"shared_secret: change-me": "shared_secret: ''"}))
@@ -117,6 +143,39 @@ def test_pishock_duration_never_exceeds_requested(monkeypatch, duration_ms, seco
     assert sent["Duration"] == seconds
 
 
+@pytest.mark.parametrize(
+    "mode,duration_ms,expected",
+    [
+        ("vibrate", 300, 300), ("beep", 100, 100), ("vibrate", 1500, 1500),
+        ("vibrate", 1600, 1), ("vibrate", 50, 1), ("vibrate", 3000, 3),
+        ("shock", 300, 1), ("shock", 1500, 1),  # shock never uses milliseconds
+    ],
+)
+def test_subsecond_durations_only_for_vibrate_and_beep(mode, duration_ms, expected):
+    assert pishock_http.api_duration(mode, duration_ms, subsecond=True) == expected
+    assert pishock_http.api_duration(mode, duration_ms, subsecond=False) == max(1, duration_ms // 1000)
+
+
+def test_live_output_passes_subsecond_setting(cfg_factory):
+    calls = []
+
+    class Result:
+        ok, status_code, body = True, 200, "Operation Succeeded."
+
+    def sender(**kwargs):
+        calls.append(kwargs)
+        return Result()
+
+    for enabled in (False, True):
+        out = PiShockOutput(cfg_factory(subsecond_vibrate_beep=enabled), is_stopped=lambda: False, sender=sender)
+        out.send(Action(mode="vibrate", intensity=5, duration_ms=400, target="c"), {"event_type": "x"})
+    assert [c["subsecond"] for c in calls] == [False, True]
+
+
+def test_example_config_keeps_subsecond_off():
+    assert load_config(EXAMPLE).subsecond_vibrate_beep is False
+
+
 def test_pishock_network_error_is_not_raised(monkeypatch):
     def boom(*a, **k):
         raise pishock_http.requests.ConnectionError("offline")
@@ -142,7 +201,7 @@ def test_cli_consumer_processes_simulated_events(tmp_path):
     proc = _run(["middleware.file_ingest", "--config", str(cfg), "--outbox", str(outbox), "--from-start", "--duration", "1.5"])
     assert proc.returncode == 0, proc.stderr
     log = proc.stderr
-    assert "[SIMULATED] vibrate intensity=20 duration_ms=400 (event=player_damaged)" in log
+    assert "[SIMULATED] vibrate intensity=20 duration_ms=400 device=1 s (event=player_damaged)" in log
     # Written in the same instant: the global 500 ms gap throttles the second action.
     assert "skip reason=global_cooldown event_type=test_pulse" in log
     assert "[LIVE]" not in log
@@ -188,6 +247,25 @@ def test_cli_dry_run_false_without_live_flag_still_simulates(tmp_path):
     proc = _run(["middleware.file_ingest", "--config", str(cfg), "--outbox", str(tmp_path / "e.jsonl"), "--duration", "0.2"])
     assert proc.returncode == 0
     assert "output is SIMULATED" in proc.stderr
+
+
+def test_estop_cli_uses_consumer_path_from_any_folder(tmp_path):
+    # Run from an unrelated folder: the e-stop must still be the repo's file,
+    # the one the consumer watches, not ./middleware/state/ESTOP.
+    import os
+
+    env = {**os.environ, "MIDDLEWARE_CONFIG": str(EXAMPLE)}
+    proc = subprocess.run([sys.executable, "-m", "middleware.safety", "--status"], cwd=tmp_path,
+                          capture_output=True, text=True, timeout=60, env=env)
+    assert str(PROJECT_ROOT / "middleware" / "state" / "ESTOP") in proc.stdout
+
+
+def test_estop_cli_reads_estop_file_from_config(tmp_path):
+    cfg = _write_cfg(tmp_path)
+    assert safety.main(["--config", str(cfg)]) == 0
+    assert (tmp_path / "ESTOP").exists()
+    assert safety.main(["--config", str(cfg), "--clear"]) == 0
+    assert not (tmp_path / "ESTOP").exists()
 
 
 def test_estop_cli(tmp_path):

@@ -1,5 +1,6 @@
 # Example middleware config. Copy to config.local.yaml (or run
 # `python -m middleware.setup_wizard`) and keep that file out of git.
+# Relative paths are relative to the repository root, not the current folder.
 
 service:
   bind_host: 127.0.0.1
@@ -11,6 +12,11 @@ service:
   max_duration_ms: 2000         # hard cap for every output (100-15000)
   default_cooldown_ms: 1500
   session_max_shock_level: 100  # damage% * this = damage shock intensity (then capped)
+  # The PiShock API takes whole seconds, so anything under 2000 ms runs for 1 s.
+  # true = send vibrate/beep of 100-1500 ms as milliseconds instead. This is an
+  # undocumented API feature that old PiShock Plus hubs misread (300 ms -> 3 s),
+  # so it is off by default and never applies to shock.
+  subsecond_vibrate_beep: false
 
 safety:
   max_actions_per_minute: 20    # across all events

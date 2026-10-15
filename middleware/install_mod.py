@@ -17,7 +17,9 @@ import shutil
 import sys
 from pathlib import Path
 
-REPO_MOD_DIR = Path(__file__).resolve().parent.parent / "emitter" / "cet" / "mods" / "pishock_emitter"
+from .config import LOCAL_CONFIG, PROJECT_ROOT
+
+REPO_MOD_DIR = PROJECT_ROOT / "emitter" / "cet" / "mods" / "pishock_emitter"
 CET_MODS_SUBDIR = Path("bin") / "x64" / "plugins" / "cyber_engine_tweaks" / "mods"
 MOD_NAME = "pishock_emitter"
 
@@ -70,7 +72,7 @@ def install(game_dir: Path, secret: str, source: Path = REPO_MOD_DIR, force_conf
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Install the PiShock CET emitter into Cyberpunk 2077")
     parser.add_argument("--game-dir", help="Cyberpunk 2077 install directory (auto-detected if omitted)")
-    parser.add_argument("--config", default=os.getenv("MIDDLEWARE_CONFIG", "middleware/config.local.yaml"),
+    parser.add_argument("--config", default=os.getenv("MIDDLEWARE_CONFIG", str(LOCAL_CONFIG)),
                         help="middleware config to take shared_secret from")
     parser.add_argument("--secret", help="shared secret (overrides --config)")
     parser.add_argument("--force-config", action="store_true", help="reset config.json to the example defaults")

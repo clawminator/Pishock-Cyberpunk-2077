@@ -62,7 +62,7 @@ Test and EMERGENCY STOP buttons.
 You'll see lines like this in the consumer terminal:
 
 ```
-21:04:10 INFO    [SIMULATED] vibrate intensity=20 duration_ms=400 (event=player_damaged)
+21:04:10 INFO    [SIMULATED] vibrate intensity=20 duration_ms=400 device=1 s (event=player_damaged)
 ```
 
 ### Try it without the game
@@ -126,9 +126,14 @@ extra checks on top.
    instead of shock until all three hold.
 3. **Hard caps:** every output is clamped to `max_intensity` and
    `max_duration_ms`. Those are clamped to the device limits of 1–100 and
-   ≤ 15 s, and clamped again just before the API call. The PiShock API takes
-   whole seconds, so durations are rounded *down* (minimum 1 s): every
-   mapping under 2000 ms runs for 1 s.
+   ≤ 15 s, and clamped again just before the API call.
+   **Durations:** the PiShock API takes whole seconds, so durations are rounded
+   *down* (minimum 1 s) and every mapping under 2000 ms runs for 1 s. The
+   `device=` part of each log line shows what is really sent. Set
+   `subsecond_vibrate_beep: true` to send vibrate/beep of 100–1500 ms as
+   milliseconds instead. That relies on an undocumented API feature which old
+   PiShock Plus hubs misread (300 ms runs for 3 s), so it is off by default.
+   Shock is always whole seconds.
 4. **Rate limits:** per-event `cooldown_ms`, a global gap between any two
    outputs (`global_cooldown_ms`, 500 ms) and `max_actions_per_minute` (20).
 5. **No replay:** the consumer only reads lines written after it started. Events
@@ -143,6 +148,12 @@ extra checks on top.
    - creating the file at `safety.estop_file`
    - Ctrl+C in the consumer, which ends the process
 
+   The consumer logs the e-stop file's full path when it starts.
+   `middleware-estop` uses the same config as the consumer (see
+   [Configuration reference](#configuration-reference)), so they agree on that
+   file from any folder. If you start the consumer with a custom `--config`,
+   pass the same `--config` to `middleware-estop`.
+
    While the e-stop is engaged nothing is output. The PiShock client also
    re-checks it immediately before each request. It is **only cleared
    explicitly**, with `middleware-estop --clear`. Clearing the in-game stop
@@ -154,6 +165,11 @@ extra checks on top.
 
 - `middleware/config.example.yaml`: every consumer option, with comments. The wizard
   writes `middleware/config.local.yaml`, which git ignores.
+- Without `--config`, every command uses `$MIDDLEWARE_CONFIG`, else
+  `middleware/config.local.yaml` if it exists, else the example.
+- Relative paths inside a config (`estop_file`, `outbox_path`) are relative to
+  the repository root, not the folder you run the command from. Paths given on
+  the command line (`--outbox`, `--estop-file`) are relative to the current folder.
 - `emitter/cet/mods/pishock_emitter/config.example.json`: emitter options
   (secret, outbox path, detection thresholds, enabling each detector).
   `install_mod` writes `config.json` next to it.
@@ -165,7 +181,7 @@ extra checks on top.
 |---|---|
 | `middleware-file-ingest` (`python -m middleware.file_ingest`) | Consume the outbox. Flags: `--config`, `--outbox`, `--live`, `--yes`, `--from-start`, `--duration`, `--verbose` |
 | `middleware-simulate` | Write signed test events: `--event TYPE [--damage N --max-health N --armed]` or `--scenario demo\|death\|estop` |
-| `middleware-estop` | Engage (no args), `--clear` or `--status` |
+| `middleware-estop` | Engage (no args), `--clear` or `--status`. `--config` picks the config, `--estop-file` overrides the file |
 | `middleware-install-mod` | Copy the mod into the game and write its `config.json` |
 | `middleware-setup` | Interactive config wizard |
 | `uvicorn middleware.app:app` | Older HTTP endpoint (`POST /event`), kept for compatibility. It applies the same policy, e-stop and rate limits. |

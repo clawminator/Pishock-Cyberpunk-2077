@@ -9,7 +9,6 @@ only ever cleared explicitly (``middleware-estop --clear``), never by the game.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 from collections import deque
@@ -83,18 +82,21 @@ def main(argv: list[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--clear", action="store_true", help="clear the emergency stop")
     group.add_argument("--status", action="store_true", help="show whether the stop is engaged")
+    parser.add_argument("--config", help="config YAML to take safety.estop_file from (default: same as the consumer)")
     parser.add_argument("--estop-file", help="override the e-stop file path (default: from config)")
     args = parser.parse_args(argv)
 
     path = args.estop_file
     if path is None:
-        from .config import SafetyConfig, load_config  # pylint: disable=import-outside-toplevel
+        # pylint: disable-next=import-outside-toplevel
+        from .config import SafetyConfig, default_config_path, load_config
 
-        cfg_path = os.getenv("MIDDLEWARE_CONFIG", "middleware/config.example.yaml")
+        cfg_path = args.config or default_config_path()
         try:
             path = load_config(cfg_path).safety.estop_file
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError) as exc:
             path = SafetyConfig.estop_file
+            print(f"warning: could not read {cfg_path} ({exc}); using the default e-stop file", file=sys.stderr)
 
     estop = EmergencyStop(path)
     if args.status:

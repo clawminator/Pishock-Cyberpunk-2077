@@ -12,12 +12,12 @@ Useful for testing the consumer end to end:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
+from .config import default_config_path
 from .protocol import build_line
 
 SCENARIOS: dict[str, list[tuple[float, str, dict[str, Any]]]] = {
@@ -71,7 +71,7 @@ class Simulator:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Append simulated signed game events to an outbox file")
-    parser.add_argument("--config", default=os.getenv("MIDDLEWARE_CONFIG", "middleware/config.example.yaml"))
+    parser.add_argument("--config", default=default_config_path())
     parser.add_argument("--outbox", help="outbox file (default: ingest.outbox_path from config)")
     parser.add_argument("--secret", help="HMAC secret (default: service.shared_secret from config)")
     parser.add_argument("--armed", action="store_true", help="mark events as armed (needed for shock mappings)")
